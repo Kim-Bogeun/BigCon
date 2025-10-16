@@ -13,7 +13,8 @@ os.environ["GOOGLE_API_KEY"] = API_KEY
 client = MultiServerMCPClient(
     {
         "firebase": {
-            "url": "http://0.0.0.0:8000/sse",
+            "url": "https://bigcon.onrender.com/sse",
+            # "url": "http://0.0.0.0:8000/sse",
             "transport": "sse",
         },
     }
