@@ -1,7 +1,7 @@
 import os
 import json
 from dotenv import load_dotenv
-from typing import Any, Iterable
+from typing import Any, Iterable, List
 from collections import OrderedDict
 
 import firebase_admin
@@ -33,56 +33,6 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred, {
         'databaseURL': 'https://bigcon-2025-default-rtdb.asia-southeast1.firebasedatabase.app'
     })
-
-# ref1_map = {
-#     "ENCODED_MCT": "가맹점구분번호",
-#     "MCT_BSE_AR": "가맹점주소",
-#     "MCT_NM": "가맹점명",
-#     "MCT_BRD_NUM": "브랜드구분코드",
-#     "MCT_SIGUNGU_NM": "가맹점지역",
-#     "HPSN_MCT_ZCD_NM": "업종",
-#     "HPSN_MCT_BZN_CD_NM": "상권",
-#     "ARE_D": "개설일",
-#     "MCT_ME_D": "폐업일"
-# }
-
-# ref2_map = {
-#     "ENCODED_MCT": "가맹점구분번호",
-#     "TA_YM": "기준년월",
-#     "MCT_OPE_MS_CN": "가맹점 운영개월수 구간",
-#     "RC_M1_SAA": "매출금액 구간",
-#     "RC_M1_TO_UE_CT": "매출건수 구간",
-#     "RC_M1_UE_CUS_CN": "유니크 고객 수 구간",
-#     "RC_M1_AV_NP_AT": "객단가 구간",
-#     "APV_CE_RAT": "취소율 구간",
-#     "DLV_SAA_RAT": "배달매출금액 비율",
-#     "M1_SME_RY_SAA_RAT": "동일 업종 매출금액 비율",
-#     "M1_SME_RY_CNT_RAT": "동일 업종 매출건수 비율",
-#     "M12_SME_RY_SAA_PCE_RT": "동일 업종 내 매출 순위 비율",
-#     "M12_SME_BZN_SAA_PCE_RT": "동일 상권 내 매출 순위 비율",
-#     "M12_SME_RY_ME_MCT_RAT": "동일 업종 내 해지 가맹점 비중",
-#     "M12_SME_BZN_ME_MCT_RAT": "동일 상권 내 해지 가맹점 비중"
-# }
-
-# ref3_map = {
-#     "ENCODED_MCT": "가맹점구분번호",
-#     "TA_YM": "기준년월",
-#     "M12_MAL_1020_RAT": "남성 20대이하 고객 비중",
-#     "M12_MAL_30_RAT": "남성 30대 고객 비중",
-#     "M12_MAL_40_RAT": "남성 40대 고객 비중",
-#     "M12_MAL_50_RAT": "남성 50대 고객 비중",
-#     "M12_MAL_60_RAT": "남성 60대이상 고객 비중",
-#     "M12_FME_1020_RAT": "여성 20대이하 고객 비중",
-#     "M12_FME_30_RAT": "여성 30대 고객 비중",
-#     "M12_FME_40_RAT": "여성 40대 고객 비중",
-#     "M12_FME_50_RAT": "여성 50대 고객 비중",
-#     "M12_FME_60_RAT": "여성 60대이상 고객 비중",
-#     "MCT_UE_CLN_REU_RAT": "재방문 고객 비중",
-#     "MCT_UE_CLN_NEW_RAT": "신규 고객 비중",
-#     "RC_M1_SHC_RSD_UE_CLN_RAT": "거주 이용 고객 비율",
-#     "RC_M1_SHC_WP_UE_CLN_RAT": "직장 이용 고객 비율",
-#     "RC_M1_SHC_FLP_UE_CLN_RAT": "유동인구 이용 고객 비율"
-# }
 
 mcp = FastMCP(
     name="Firebase",
@@ -130,6 +80,26 @@ async def search_franchise_by_name(mct_nm: str) -> dict[str, Any]:
     except Exception as e:
         print(f"Error in search_franchise_by_name: {e}")
         return {"error": str(e)}
+
+@mcp.tool()
+async def marketing_channels_info(q_type: str) -> List[dict[str, Any]]:
+    """
+    Get information of marketing channels from Firebase Realtime Database.
+
+    Args:
+        q_type (str): Query type
+    Returns:
+        List[dict[str, Any]]: A list of marketing channel information, each with 'name' and 'data' fields
+    """
+    ref = db.reference("/marketing_channels")
+    data = ref.get() 
+
+    if not data:
+        return []
+
+    result = [{"name": name, "data": info} for name, info in data.items()]
+    return result
+    
 
 if __name__ == "__main__":
     print("Starting Firebase MCP server...")

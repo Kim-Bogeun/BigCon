@@ -10,18 +10,27 @@ import asyncio
 API_KEY = st.secrets["GOOGLE_API_KEY"]
 os.environ["GOOGLE_API_KEY"] = API_KEY
 
+# helper to run coroutines in a fresh loop (avoids asyncio.run in an existing event loop)
+def run_coro_sync(coro):
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
 client = MultiServerMCPClient(
     {
         "firebase": {
             "url": "https://bigcon.onrender.com/sse",
-            # "url": "http://0.0.0.0:8000/sse",
+            # "url": "http://127.0.0.1:8000/sse",
             "transport": "sse",
+            "headers": {"Accept": "text/event-stream"},
         },
     }
 )
 
 # tools 가져오기
-tools = asyncio.run(client.get_tools())  # list of all tools
+tools = run_coro_sync(client.get_tools())  # list of all tools
 
 
 # 에이전트 생성
@@ -90,6 +99,7 @@ DEFAULT_INSTR1 = """너는 최고의 마케팅 방법을 자동으로 추천하�
 """
 DEFAULT_INSTR2 = """[사용할 수 있는 도구]
 1. search_franchise_by_name: 이름으로 가맹점 검색
+2. marketing_channels_info: 마케팅 채널 정보 조회
 """
 DEFAULT_INSTR3 = f"""매장에서 현재 재방문률을 높일 수 있는 마케팅 아이디어와 근거를 제시해줘.
 가맹점명 : {franchise_name}
@@ -113,6 +123,6 @@ if st.button("실행"):
         )
         combined = f"Target franchise (MCT_NM): {franchise_name}\n\n" + combined
         with st.spinner("처리 중..."):
-            result = asyncio.run(async_agent_run(combined))
+            result = run_coro_sync(async_agent_run(combined))
         st.subheader("Combined result")
         st.write(result)
