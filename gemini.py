@@ -100,6 +100,7 @@ DEFAULT_INSTR1 = """너는 최고의 마케팅 방법을 자동으로 추천하�
 DEFAULT_INSTR2 = """[사용할 수 있는 도구]
 1. search_franchise_by_name: 이름으로 가맹점 검색
 2. marketing_channels_info: 마케팅 채널 정보 조회
+3. marketing_method_info: 마케팅 아이디어 정보 조회
 """
 DEFAULT_INSTR3 = f"""매장에서 현재 재방문률을 높일 수 있는 마케팅 아이디어와 근거를 제시해줘.
 가맹점명 : {franchise_name}

@@ -1,5 +1,6 @@
 import os
 import json
+import random
 from dotenv import load_dotenv
 from typing import Any, Iterable, List
 from collections import OrderedDict
@@ -100,6 +101,26 @@ async def marketing_channels_info(q_type: str) -> List[dict[str, Any]]:
     result = [{"name": name, "data": info} for name, info in data.items()]
     return result
     
+@mcp.tool()
+async def marketing_method_info(q_type: str) -> List[dict[str, Any]]:
+    """
+    Get information of online marketing methods from Firebase Realtime Database.
+
+    Args:
+        q_type (str): Query type
+    Returns:
+        List[dict[str, Any]]: A list of 3 randomly selected marketing channel information, each with 'name' and 'data' fields
+    """
+    ref = db.reference("/online_marketing")
+    data = ref.get() 
+
+    if not data:
+        return []
+
+    # 랜덤으로 3개 선택
+    sampled_items = random.sample(list(data.items()), 3)
+    result = [{"name": name, "data": info} for name, info in sampled_items]
+    return result
 
 if __name__ == "__main__":
     print("Starting Firebase MCP server...")
