@@ -1,46 +1,55 @@
 import os
-import subprocess
-import streamlit as st
-import time
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.agents import initialize_agent, AgentType
-from langchain_mcp_adapters.client import MultiServerMCPClient
 import asyncio
+import json
+import pathlib
+import time
+from typing import List, Dict, Optional
+
+import streamlit as st
+from PIL import Image
+from langchain.agents import initialize_agent, AgentType
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+from firebase_init import get_db_ref
 
 API_KEY = st.secrets["GOOGLE_API_KEY"]
 os.environ["GOOGLE_API_KEY"] = API_KEY
 
-# helper to run coroutines in a fresh loop (avoids asyncio.run in an existing event loop)
+MCP_CONFIG = {
+    "firebase": {
+        "url": "https://bigcon.onrender.com/sse",
+        "transport": "sse",
+        "headers": {"Accept": "text/event-stream"},
+    }
+}
+
+LLM_CONFIG = {
+    "model": "gemini-2.5-flash",
+    "google_api_key": API_KEY,
+    "temperature": 0.1
+}
+
+UI_CONFIG = {
+    "page_title": "Is-This-Right?",
+    "layout": "wide",
+    "max_image_width": 30,
+    "max_image_height": 20
+}
+
+
 def run_coro_sync(coro):
+    """비동기 코루틴을 동기적으로 실행하는 헬퍼 함수"""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(coro)
     finally:
         loop.close()
 
-client = MultiServerMCPClient(
-    {
-        "firebase": {
-            "url": "https://bigcon.onrender.com/sse",
-            # "url": "http://127.0.0.1:8000/sse",
-            "transport": "sse",
-            "headers": {"Accept": "text/event-stream"},
-        },
-    }
-)
+client = MultiServerMCPClient(MCP_CONFIG)
+tools = run_coro_sync(client.get_tools())
+chat = ChatGoogleGenerativeAI(**LLM_CONFIG)
 
-# tools 가져오기
-tools = run_coro_sync(client.get_tools())  # list of all tools
-
-
-# 에이전트 생성
-chat = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash",
-    google_api_key=API_KEY,
-    temperature=0.1
-)
-
-# 에이전트 생성
 agent = initialize_agent(
     tools=tools,
     llm=chat,
@@ -48,82 +57,258 @@ agent = initialize_agent(
     verbose=True
 )
 
-async def async_agent_run(prompt):
+async def async_agent_run(prompt: str) -> str:
+    """에이전트를 비동기적으로 실행"""
     return await agent.arun(prompt)
 
 
-def run_multiple_instructions(instructions: list[str], mode: str = "sequential") -> list[str]:
+def run_multiple_instructions(instructions: List[str], mode: str = "sequential") -> List[str]:
     """
-    mode:
-      - "sequential": run agent on each instruction in order, each run gets previous outputs as context
-      - "combined": run agent once with all instructions concatenated (sections)
-    Returns list of outputs (one per instruction in sequential, single-item list for combined).
+    여러 지시사항을 실행하는 함수
+    
+    Args:
+        instructions: 실행할 지시사항 리스트
+        mode: 실행 모드 ("sequential" 또는 "combined")
+        
+    Returns:
+        실행 결과 리스트
     """
-    outputs: list[str] = []
+    outputs: List[str] = []
+    
     if mode == "combined":
-        combined = "\n\n".join(f"Instruction {i+1}:\n{ins}" for i, ins in enumerate(instructions) if ins.strip())
+        combined = "\n\n".join(
+            f"Instruction {i+1}:\n{ins}" 
+            for i, ins in enumerate(instructions) 
+            if ins.strip()
+        )
         if not combined.strip():
             return []
         out = asyncio.run(async_agent_run(combined))
         return [out]
-    # sequential
+    
     context = ""
     for i, ins in enumerate(instructions):
         if not ins or not ins.strip():
-            outputs.append("")  # keep positional mapping
+            outputs.append("")
             continue
         prompt = f"Instruction {i+1}:\n{ins}\n\nContext so far:\n{context}"
         out = asyncio.run(async_agent_run(prompt))
         outputs.append(out)
-        # append latest output to context for next iteration
         context += f"\n--- Output {i+1} ---\n{out}\n"
+    
     return outputs
 
 
-# Streamlit UI
-st.title("BigCon Demo")
-
-st.markdown("가맹점명을 입력하고, 세 개의 instruction을 확인/수정한 뒤 실행하세요.")
-franchise_name = st.text_input("가맹점명", value="")
-
-DEFAULT_INSTR1 = """너는 최고의 마케팅 방법을 자동으로 추천하는 AI비서야.
-실제 점주가 바로 쓸 수 있는 서비스 아이디어 제안해야해.
-
-[목표]
-- 가맹점별 특징/고객층/상권에 맞는 홍보, 이벤트, 할인, SNS 활용 꿀팁 제공
-- 전략의 근거와 함께, 어떻게 실행할 수 있는지도 구체적으로 설명
-
-[예시1]
-문의하신 가맹점은 유동인구가 많은 성수에 위치해 있습니다. 제시된 표처럼 이미 20대 남녀 고객의 비중이 높지만, 동일 지역에서의 동일 업종에 비해 낮은 수준입니다. 매출을 늘리기 위해서는 매출에 직접적인 원인이 되는 변수인 객단가를 높이는 것이 좋습니다. 따라서 첫 방문 고객이 많은 특성상 가성비보다는 객단가를 높이는 것이 매출에 도움이 될 수 있습니다. 
-이런 전략은 어떨까요? 유니크하고 술을 곁들일 수 있는 메뉴(마라양꼬치)를 개발하여 SNS에 바이럴함으로써, 처음 오는 고객들의 눈길을 끌고 객단가를 높일 수 있습니다.
-"""
-DEFAULT_INSTR2 = """[사용할 수 있는 도구]
-1. search_franchise_by_name: 이름으로 가맹점 검색
-2. marketing_channels_info: 마케팅 채널 정보 조회
-3. marketing_method_info: 마케팅 아이디어 정보 조회
-"""
-DEFAULT_INSTR3 = f"""매장에서 현재 재방문률을 높일 수 있는 마케팅 아이디어와 근거를 제시해줘.
-가맹점명 : {franchise_name}
-"""
+def load_instructions_file(fname: str = "instructions.json") -> Dict:
+    """JSON 파일에서 지시사항을 로드하는 함수"""
+    base = pathlib.Path(__file__).parent
+    p = base / fname
+    if p.exists():
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+    return {}
 
 
-instr1 = st.text_area("Instruction 1", value=DEFAULT_INSTR1, height=120)
-instr2 = st.text_area("Instruction 2", value=DEFAULT_INSTR2, height=120)
-instr3 = st.text_area("Instruction 3", value=DEFAULT_INSTR3, height=120)
+def get_franchise_data(franchise_name: str) -> Optional[Dict]:
+    """Firebase에서 가맹점 데이터를 가져오는 함수"""
+    try:
+        ref = get_db_ref("/신한은행_데이터")
+        return ref.child(franchise_name).get()
+    except Exception as e:
+        st.error(f"Firebase 조회 중 오류: {e}")
+        return None
 
-if st.button("실행"):
-    instrs = [instr1, instr2, instr3]
+
+def get_instruction_by_business_type(biz: str, rare: int, instr_from_file: Dict) -> str:
+    """업종과 재방문 고객 비중에 따라 적절한 지시사항을 선택하는 함수"""
+    if biz == "카페":
+        return instr_from_file.get("instr1", "")
+    elif 0 <= rare <= 30:
+        return instr_from_file.get("instr2", "")
+    else:
+        return instr_from_file.get("instr3", "")
+
+
+INSTR_FROM_FILE = load_instructions_file()
+
+st.set_page_config(
+    page_title=UI_CONFIG["page_title"], 
+    layout=UI_CONFIG["layout"]
+)
+st.markdown(
+    f"""
+    <style>
+    .app-title {{ 
+        font-size: 28px; 
+        font-weight: 700; 
+        margin-bottom: 6px; 
+        color: #1f2937;
+    }}
+    .muted {{ 
+        color: #6c757d; 
+        margin-bottom: 16px; 
+        font-size: 14px;
+    }}
+    .card {{ 
+        background: #ffffff; 
+        border-radius: 8px; 
+        padding: 16px; 
+        box-shadow: 0 4px 14px rgba(31, 41, 55, 0.06);
+        border: 1px solid #e5e7eb;
+    }}
+    .divider {{ 
+        border-left: 1px solid #e6e6e6; 
+        height: 100%; 
+        margin: 0 20px; 
+    }}
+    .image-container {{
+        max-width: {UI_CONFIG['max_image_width']}px;
+        max-height: {UI_CONFIG['max_image_height']}px;
+        margin: 0 auto;
+        text-align: center;
+    }}
+    .image-container img {{
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    }}
+    .run-btn button {{
+        background-color: #4CAF50;
+        color: white;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        padding: 0.6em 1em;
+        transition: background-color 0.2s ease;
+        width: 100%;
+    }}
+    .run-btn button:hover {{
+        background-color: #45a049;
+        color: white;
+    }}
+    .result-container {{
+        background: #f8fafc;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 16px;
+        border-left: 4px solid #4CAF50;
+    }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+DEFAULT_INSTR1 = INSTR_FROM_FILE.get("common_instr", "")
+DEFAULT_INSTR2 = INSTR_FROM_FILE.get("instr3", "")
+
+left_col, right_col = st.columns([0.5, 1.5])
+
+with left_col:
+    image_file = "graph.png" if st.session_state.get("run_btn", False) else "image.png"
+    img_path = pathlib.Path(__file__).parent / image_file
+    if img_path.exists():
+        try:
+            img = Image.open(img_path)
+            st.markdown('<div class="image-container">', unsafe_allow_html=True)
+            st.image(
+                img, 
+                use_container_width=True,
+                caption="인과 그래프"
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"이미지를 불러오지 못했습니다: {e}")
+    else:
+        st.info("image.png가 없습니다. 프로젝트 루트에 image.png를 놓아주세요.")
+
+    col_input, col_btn = st.columns([4, 1])
+    with col_input:
+        franchise_name = st.text_input(
+            "가맹점명 (MCT_NM)", 
+            value="", 
+            help="검색할 가맹점명을 입력하세요.",
+            placeholder="예: 스타**"
+        )
+    with col_btn:
+        st.markdown("<div class='run-btn'>", unsafe_allow_html=True)
+        def _on_click_run():
+            st.session_state["run_btn"] = True
+        run_btn = st.button(
+            "🚀 실행",
+            key="run_combined",
+            help="입력한 instruction으로 LLM을 실행합니다.",
+            on_click=_on_click_run
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+
+with right_col:
+    info_container2 = st.empty()
+    INFO_DEFAULT = ""
+    info_container2.subheader(INFO_DEFAULT)
+    
+    result_container = st.empty()
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+if run_btn:
+    st.session_state["run_btn"] = True
     if not franchise_name.strip():
         st.warning("가맹점명을 입력하세요.")
-    elif not any(i.strip() for i in instrs):
-        st.warning("최소 하나의 instruction을 입력하세요.")
     else:
-        # prepare combined prompt, inject franchise name where useful
+        record = get_franchise_data(franchise_name)
+        
+        if record is None:
+            st.info("Firebase에서 해당 가맹점 정보를 찾지 못했습니다. 기본 instruction으로 실행합니다.")
+            selected_instr1 = DEFAULT_INSTR1
+            selected_instr2 = DEFAULT_INSTR2
+        else:
+            biz = record.get("업종", "")
+            rare = record.get("재방문 고객 비중", 0)
+            business = record.get("업종", "")
+            delivery_rate = record.get("배달매출_비율", 0)
+            
+            selected_instr1 = INSTR_FROM_FILE.get("common_instr", DEFAULT_INSTR1)
+            selected_instr3 = INSTR_FROM_FILE.get("default_instr-2")
+            if biz == "카페":
+                selected_instr2 = INSTR_FROM_FILE.get("instr1") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr1-2")
+            elif business == "건강식품":
+                selected_instr2 = INSTR_FROM_FILE.get("instr5") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr5-2")
+            elif rare <= 30 and rare >= 0:
+                selected_instr2 = INSTR_FROM_FILE.get("instr2") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr2-2")
+            else:
+                selected_instr2 = INSTR_FROM_FILE.get("instr3") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr3-2")
+            
+            if not selected_instr2:
+                selected_instr2 = DEFAULT_INSTR2
+            
+        instructions = [selected_instr1, selected_instr2, selected_instr3]
         combined = "\n\n".join(
-            f"Instruction {i+1}:\n{ins}" for i, ins in enumerate(instrs) if ins.strip()
+            f"Instruction {i+1}:\n{ins}" 
+            for i, ins in enumerate(instructions) 
+            if ins.strip()
         )
         combined = f"Target franchise (MCT_NM): {franchise_name}\n\n" + combined
+        
+        try:
+            info_text = selected_instr2[:-3] if len(selected_instr2) > 3 else selected_instr2
+            info_container2.markdown(f'<div class="muted">{info_text}</div>', unsafe_allow_html=True)
+        except Exception:
+            info_container2.text(selected_instr2)
+
         with st.spinner("처리 중..."):
-            result = run_coro_sync(async_agent_run(combined))
-        st.subheader("Combined result")
-        st.write(result)
+            try:
+                output = run_coro_sync(async_agent_run(combined))
+                result_container.write(output)
+            except Exception as e:
+                result_container.error(f"Agent 실행 중 오류: {e}")
+                st.error(f"상세 오류: {str(e)}")
