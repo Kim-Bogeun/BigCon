@@ -74,10 +74,18 @@ async def search_franchise_by_name(mct_nm: str) -> dict[str, Any]:
         ref = db.reference("/신한은행_데이터")
         data = ref.get()
         if not isinstance(data, dict):
-            return []
+            return None
         
-        record = data.get(mct_nm)
-        return record
+        attempts = 0
+        key = mct_nm
+        record = None
+        while attempts < 3:
+            record = data.get(key)
+            if record is not None:
+                return record
+            key += '*'
+            attempts += 1
+        return None
     except Exception as e:
         print(f"Error in search_franchise_by_name: {e}")
         return {"error": str(e)}
@@ -116,8 +124,6 @@ async def marketing_method_info(q_type: str) -> List[dict[str, Any]]:
 
     if not data:
         return []
-
-    # 랜덤으로 3개 선택
     sampled_items = random.sample(list(data.items()), 3)
     result = [{"name": name, "data": info} for name, info in sampled_items]
     return result

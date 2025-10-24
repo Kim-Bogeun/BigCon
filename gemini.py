@@ -3,6 +3,8 @@ import asyncio
 import json
 import pathlib
 import time
+import random
+import pandas as pd
 from typing import List, Dict, Optional
 
 import streamlit as st
@@ -131,6 +133,41 @@ def get_instruction_by_business_type(biz: str, rare: int, instr_from_file: Dict)
         return instr_from_file.get("instr3", "")
 
 
+def create_causal_instruction_from_data(cluster_causal_df: pd.DataFrame) -> str:
+    """클러스터 인과관계 데이터를 기반으로 지시사항을 생성하는 함수"""
+    if cluster_causal_df.empty:
+        return ""
+    
+    causal_instructions = []
+    
+    for _, row in cluster_causal_df.iterrows():
+        causal_path = row.get("인과경로", "")
+        causal_interpretation = row.get("인과적 해석", "")
+        
+        if causal_path and causal_interpretation:
+            instruction = f"""
+            인과경로: {causal_path}
+            인과적 해석: {causal_interpretation}
+            """
+            causal_instructions.append(instruction.strip())
+    
+    return "\n\n".join(causal_instructions)
+
+
+def get_random_image_from_folder(folder_path: str) -> str:
+    """폴더에서 랜덤으로 PNG 이미지를 선택하는 함수"""
+    if not os.path.exists(folder_path):
+        return "image.png"  
+    
+    png_files = [f for f in os.listdir(folder_path) if f.lower().endswith('.png')]
+    
+    if not png_files:
+        return "image.png"  
+    
+    selected_file = random.choice(png_files)
+    return os.path.join(folder_path, selected_file)
+
+
 INSTR_FROM_FILE = load_instructions_file()
 
 st.set_page_config(
@@ -209,22 +246,14 @@ DEFAULT_INSTR2 = INSTR_FROM_FILE.get("instr3", "")
 left_col, right_col = st.columns([0.5, 1.5])
 
 with left_col:
-    image_file = "graph.png" if st.session_state.get("run_btn", False) else "image.png"
-    img_path = pathlib.Path(__file__).parent / image_file
-    if img_path.exists():
-        try:
-            img = Image.open(img_path)
-            st.markdown('<div class="image-container">', unsafe_allow_html=True)
-            st.image(
-                img, 
-                use_container_width=True,
-                caption="인과 그래프"
-            )
-            st.markdown('</div>', unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"이미지를 불러오지 못했습니다: {e}")
-    else:
-        st.info("image.png가 없습니다. 프로젝트 루트에 image.png를 놓아주세요.")
+    image_placeholder = st.empty() 
+    
+    default_img = Image.open("image.png")
+    image_placeholder.image(
+        default_img,
+        use_container_width=True,
+        caption="지니야 도와줘!!!!"
+    )
 
     col_input, col_btn = st.columns([4, 1])
     with col_input:
@@ -272,6 +301,8 @@ if run_btn:
             rare = record.get("재방문 고객 비중", 0)
             business = record.get("업종", "")
             delivery_rate = record.get("배달매출_비율", 0)
+            cluster = int(record.get("cluster", 0))
+            
             
             selected_instr1 = INSTR_FROM_FILE.get("common_instr", DEFAULT_INSTR1)
             selected_instr3 = INSTR_FROM_FILE.get("default_instr-2")
@@ -290,8 +321,38 @@ if run_btn:
             
             if not selected_instr2:
                 selected_instr2 = DEFAULT_INSTR2
+                
+            st.session_state["current_cluster"] = cluster
             
-        instructions = [selected_instr1, selected_instr2, selected_instr3]
+            graph_folder = f"images/cluster{cluster}"
+            image_file = get_random_image_from_folder(graph_folder)
+            
+            cluster_dict = {
+                0: "기초, 전통 식자재형\n\n특징: 고령층 및 여성 중심 방문, 생필·식자재 중심 업종 \n\n업종: 건어물, 건강원, 농산물, 미곡상, 수산물, 식품 제조, 축산물",
+                1: "여가, 미식 소비형\n\n특징: 20–30대 주요 방문 및 성별 균형, 카페·베이커리·와인바 등 감성소비 업종\n\n업종: 카페, 커피전문점, 베이커리, 와인바, 일식당, 양식, 마카롱 등",
+                2: "실속 외식형\n\n특징: 전연령대 고루 방문, 남성 비중 다소 높음, 치킨, 맥주, 한식, 육류 등 회식, 외식 중심\n\n업종: 치킨, 호프/맥주, 한식-육류, 피자, 중식당, 분식, 포장마차 등",
+                3: "건강 프리미엄형\n\n특징: 중장년 및 여성 중심 방문, 건강식·반찬·죽 등 웰빙 중심 업종\n\n업종: 건강식품, 반찬, 인삼제품, 청과물, 떡/한과 제조, 유제품, 한식-죽"
+            }
+            
+            try:
+                img = Image.open(image_file)
+                image_placeholder.image(
+                    img,
+                    use_container_width=True,
+                    caption=cluster_dict[cluster]
+                )
+            except Exception as e:
+                st.warning(f"이미지를 불러올 수 없습니다: {e}")
+            
+            try:
+                cluster_causal_df = pd.read_excel(f"dataset/cluster_causal/{cluster}.xlsx")
+                selected_instr_causal = create_causal_instruction_from_data(cluster_causal_df)
+            except Exception as e:
+                st.warning(f"클러스터 인과관계 데이터를 불러올 수 없습니다: {e}")
+                selected_instr_causal = ""
+            
+        instructions = [selected_instr1, selected_instr_causal, selected_instr2, selected_instr3]
+        
         combined = "\n\n".join(
             f"Instruction {i+1}:\n{ins}" 
             for i, ins in enumerate(instructions) 
@@ -308,7 +369,10 @@ if run_btn:
         with st.spinner("처리 중..."):
             try:
                 output = run_coro_sync(async_agent_run(combined))
-                result_container.write(output)
+                result_container.markdown(
+                    f"<div style='font-size:17px; line-height:1.6; color:#111;'>{output}</div>",
+                    unsafe_allow_html=True
+                )
             except Exception as e:
                 result_container.error(f"Agent 실행 중 오류: {e}")
                 st.error(f"상세 오류: {str(e)}")
