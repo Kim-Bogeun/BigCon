@@ -296,6 +296,9 @@ if run_btn:
             st.info("Firebase에서 해당 가맹점 정보를 찾지 못했습니다. 기본 instruction으로 실행합니다.")
             selected_instr1 = DEFAULT_INSTR1
             selected_instr2 = DEFAULT_INSTR2
+            cluster_causal_df = pd.read_excel(f"dataset/cluster_causal/0.xlsx")
+            selected_instr_causal = create_causal_instruction_from_data(cluster_causal_df)
+            selected_instr3 = INSTR_FROM_FILE.get("instr1-2")
         else:
             biz = record.get("업종", "")
             rare = record.get("재방문 고객 비중", 0)
