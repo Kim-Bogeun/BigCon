@@ -301,9 +301,11 @@ if run_btn:
             selected_instr3 = INSTR_FROM_FILE.get("instr1-2")
         else:
             biz = record.get("업종", "")
-            rare = record.get("재방문 고객 비중", 0)
+            rare = record.get("재방문_고객비중", 0)
             business = record.get("업종", "")
-            delivery_rate = record.get("배달매출_비율", 0)
+            delivery_rate = record.get("배달매출_비율_상권비교지수", 0)
+            price_rate = record.get("객단가_구간_상권비교지수", 1)
+            rare2 = record.get("재방문_상권비교지수", 1)
             cluster = int(record.get("cluster", 0))
             
             
@@ -312,12 +314,15 @@ if run_btn:
             if biz == "카페":
                 selected_instr2 = INSTR_FROM_FILE.get("instr1") or instr2
                 selected_instr3 = INSTR_FROM_FILE.get("instr1-2")
-            elif business == "건강식품":
-                selected_instr2 = INSTR_FROM_FILE.get("instr5") or instr2
-                selected_instr3 = INSTR_FROM_FILE.get("instr5-2")
             elif rare <= 30 and rare >= 0:
                 selected_instr2 = INSTR_FROM_FILE.get("instr2") or instr2
                 selected_instr3 = INSTR_FROM_FILE.get("instr2-2")
+            elif business == "건강식품":
+                selected_instr2 = INSTR_FROM_FILE.get("instr4") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr4-2")
+            elif price_rate > 1 and rare2 < 1:
+                selected_instr2 = INSTR_FROM_FILE.get("instr5") or instr2
+                selected_instr3 = INSTR_FROM_FILE.get("instr5-2")
             else:
                 selected_instr2 = INSTR_FROM_FILE.get("instr3") or instr2
                 selected_instr3 = INSTR_FROM_FILE.get("instr3-2")
